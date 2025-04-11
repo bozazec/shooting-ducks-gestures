@@ -116,8 +116,41 @@ function drawGame(results) {
                 // Store the MIRRORED coordinates for the shoot event
                 const mirroredAimX = canvasElement.width - originalCursorX;
                 const mirroredAimY = originalCursorY;
+
+                // Emit the shoot event to the server
                 socket.emit('shoot', { x: mirroredAimX, y: mirroredAimY });
                 console.log(`Sent shoot event for hand ${index} at (mirrored):`, mirroredAimX, mirroredAimY);
+
+                // --- Display bullet hole effect on shoot ---
+                const gameContainer = document.querySelector('.container');
+                if (gameContainer) {
+                    // Create Bullet Hole
+                    const bulletHole = document.createElement('div');
+                    bulletHole.classList.add('bullet-hole');
+                    bulletHole.style.left = `${mirroredAimX - 5}px`;
+                    bulletHole.style.top = `${mirroredAimY - 5}px`;
+                    gameContainer.appendChild(bulletHole);
+                    setTimeout(() => {
+                        if (bulletHole.parentNode) {
+                            bulletHole.parentNode.removeChild(bulletHole);
+                        }
+                    }, 2000);
+
+                    // Create Explosion
+                    const explosion = document.createElement('div');
+                    explosion.classList.add('explosion');
+                    explosion.style.left = `${mirroredAimX - 25}px`; // 25 is half of 50px
+                    explosion.style.top = `${mirroredAimY - 25}px`; // 25 is half of 50px
+                    gameContainer.appendChild(explosion);
+                    setTimeout(() => {
+                        if (explosion.parentNode) {
+                            explosion.parentNode.removeChild(explosion);
+                        }
+                    }, 500); // 0.5s duration
+
+                } else {
+                    console.error("Could not find game container to show effects.");
+                }
             }
         });
     }
