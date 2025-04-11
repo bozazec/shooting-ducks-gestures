@@ -18,7 +18,7 @@ const SHOOT_THRESHOLD = 30; // Pixel distance for pinch
 
 // Load duck image
 const duckImage = new Image();
-duckImage.src = '/static/assets/duck.png'; // Path relative to the static folder served by Flask
+duckImage.src = '/static/assets/pumpaj.png'; // Path relative to the static folder served by Flask
 let duckImageLoaded = false;
 duckImage.onload = () => {
     console.log("Duck image loaded successfully.");
