@@ -18,6 +18,8 @@
             <!-- Canvas for drawing the game -->
             <canvas class="output_canvas" width="1280px" height="720px"></canvas>
             <div id="score">Score: 0</div>
+            <!-- Sound Toggle Button -->
+            <button id="toggle-sound-button" style="position: absolute; top: 10px; right: 10px; z-index: 20; padding: 5px 10px;">Sound: ON</button>
         </div>
         <div class="instructions">
             <h2>How to Play</h2>
@@ -32,6 +34,9 @@
             </ul>
         </div>
     </div>
+
+    <!-- Preload gunshot sound -->
+    <audio id="gunshot-sound" src="{{ url_for('static', filename='assets/gunshot.mp3') }}" preload="auto"></audio>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>

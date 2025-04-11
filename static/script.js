@@ -2,6 +2,8 @@ const videoElement = document.getElementsByClassName('input_video')[0];
 const canvasElement = document.getElementsByClassName('output_canvas')[0];
 const canvasCtx = canvasElement.getContext('2d');
 const scoreElement = document.getElementById('score');
+const soundButton = document.getElementById('toggle-sound-button');
+const gunshotSound = document.getElementById('gunshot-sound');
 
 const socket = io(); // Connect to the Flask-SocketIO server
 
@@ -12,6 +14,9 @@ let currentScore = 0;
 // let isShooting = false;
 // let lastShootState = false; // Keep for single-hand logic temporarily
 let lastShootStates = {}; // Track state for each hand {handIndex: boolean}
+
+// Sound state
+let isSoundEnabled = true; // Default to ON
 
 const DUCK_COLOR = '#FFFF00'; // Yellow
 const AIM_COLOR = '#0000FF'; // Blue
@@ -29,6 +34,30 @@ duckImage.onload = () => {
 duckImage.onerror = () => {
     console.error("Failed to load duck image.");
 };
+
+// Function to update sound state and button text
+function updateSoundState(enabled) {
+    isSoundEnabled = enabled;
+    soundButton.textContent = `Sound: ${enabled ? 'ON' : 'OFF'}`;
+    localStorage.setItem('shootingDucksSoundEnabled', enabled);
+    if (enabled) {
+        // Optional: Play a short sound to confirm activation
+        // gunshotSound.play();
+    }
+}
+
+// --- Initialize Sound State from localStorage ---
+document.addEventListener('DOMContentLoaded', () => {
+    const savedSoundSetting = localStorage.getItem('shootingDucksSoundEnabled');
+    // If there is a saved setting, use it, otherwise default to true (ON)
+    const initialSoundState = savedSoundSetting !== null ? JSON.parse(savedSoundSetting) : true;
+    updateSoundState(initialSoundState);
+});
+
+// --- Sound Toggle Button Listener ---
+soundButton.addEventListener('click', () => {
+    updateSoundState(!isSoundEnabled); // Toggle the state
+});
 
 function drawGame(results) {
     canvasCtx.save();
@@ -120,6 +149,15 @@ function drawGame(results) {
                 // Emit the shoot event to the server
                 socket.emit('shoot', { x: mirroredAimX, y: mirroredAimY });
                 console.log(`Sent shoot event for hand ${index} at (mirrored):`, mirroredAimX, mirroredAimY);
+
+                // --- Play sound if enabled ---
+                if (isSoundEnabled && gunshotSound) {
+                    gunshotSound.currentTime = 0; // Allow rapid firing
+                    gunshotSound.play().catch(error => {
+                        // Autoplay might be blocked, log error
+                        console.error("Error playing sound:", error);
+                    });
+                }
 
                 // --- Display bullet hole effect on shoot ---
                 const gameContainer = document.querySelector('.container');
