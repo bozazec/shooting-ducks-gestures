@@ -7,9 +7,11 @@ const socket = io(); // Connect to the Flask-SocketIO server
 
 let currentDucks = [];
 let currentScore = 0;
-let aimX = -1, aimY = -1;
-let isShooting = false;
-let lastShootState = false;
+// Remove unused single-hand tracking variables
+// let aimX = -1, aimY = -1;
+// let isShooting = false;
+// let lastShootState = false; // Keep for single-hand logic temporarily
+let lastShootStates = {}; // Track state for each hand {handIndex: boolean}
 
 const DUCK_COLOR = '#FFFF00'; // Yellow
 const AIM_COLOR = '#0000FF'; // Blue
@@ -72,51 +74,55 @@ function drawGame(results) {
         });
     }
 
-    // --- Process Gestures and Draw Cursor (in mirrored context) --- (Using ORIGINAL coordinates for drawing)
-    aimX = -1; // Keep track of the *final* shooting coordinate (mirrored)
-    aimY = -1;
-    isShooting = false;
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        const landmarks = results.multiHandLandmarks[0];
-        const indexTip = landmarks[8];
-        const thumbTip = landmarks[4];
-
-        const originalCursorX = indexTip.x * canvasElement.width;
-        const originalCursorY = indexTip.y * canvasElement.height;
-        const originalThumbX = thumbTip.x * canvasElement.width;
-        const originalThumbY = thumbTip.y * canvasElement.height;
-
-        const distance = Math.sqrt(Math.pow(originalThumbX - originalCursorX, 2) + Math.pow(originalThumbY - originalCursorY, 2));
-        if (distance < SHOOT_THRESHOLD) {
-            isShooting = true;
+    // --- Process Gestures and Draw Cursor (in mirrored context) ---
+    // Reset states for hands not currently detected
+    const currentHandIndices = results.multiHandLandmarks ? results.multiHandLandmarks.map((_, i) => i) : [];
+    Object.keys(lastShootStates).forEach(key => {
+        if (!currentHandIndices.includes(parseInt(key))) {
+            delete lastShootStates[key];
         }
+    });
 
-        // Draw aiming cursor at ORIGINAL coordinates (it will be mirrored by the transform)
-        canvasCtx.fillStyle = isShooting ? SHOOT_COLOR : AIM_COLOR;
-        canvasCtx.beginPath();
-        canvasCtx.arc(originalCursorX, originalCursorY, isShooting ? 15 : 10, 0, 2 * Math.PI);
-        canvasCtx.fill();
+    if (results.multiHandLandmarks) {
+        results.multiHandLandmarks.forEach((landmarks, index) => {
+            const indexTip = landmarks[8];
+            const thumbTip = landmarks[4];
 
-        // Store the MIRRORED coordinates for the shoot event (Re-enabled)
-        aimX = canvasElement.width - originalCursorX;
-        // aimX = originalCursorX;
-        aimY = originalCursorY;
+            if (!indexTip || !thumbTip) return; // Skip if landmarks are missing
+
+            const originalCursorX = indexTip.x * canvasElement.width;
+            const originalCursorY = indexTip.y * canvasElement.height;
+            const originalThumbX = thumbTip.x * canvasElement.width;
+            const originalThumbY = thumbTip.y * canvasElement.height;
+
+            const distance = Math.sqrt(Math.pow(originalThumbX - originalCursorX, 2) + Math.pow(originalThumbY - originalCursorY, 2));
+            const isHandShooting = distance < SHOOT_THRESHOLD;
+
+            // Draw aiming cursor at ORIGINAL coordinates (it will be mirrored by the transform)
+            canvasCtx.fillStyle = isHandShooting ? SHOOT_COLOR : AIM_COLOR;
+            canvasCtx.beginPath();
+            canvasCtx.arc(originalCursorX, originalCursorY, isHandShooting ? 15 : 10, 0, 2 * Math.PI);
+            canvasCtx.fill();
+
+            // --- Detect Shoot Event and Emit for this hand ---
+            const wasShooting = lastShootStates[index] || false; // Get previous state, default to false
+            let shootEvent = false;
+            if (isHandShooting && !wasShooting) {
+                shootEvent = true;
+            }
+            lastShootStates[index] = isHandShooting; // Update state for this hand index
+
+            if (shootEvent) {
+                // Store the MIRRORED coordinates for the shoot event
+                const mirroredAimX = canvasElement.width - originalCursorX;
+                const mirroredAimY = originalCursorY;
+                socket.emit('shoot', { x: mirroredAimX, y: mirroredAimY });
+                console.log(`Sent shoot event for hand ${index} at (mirrored):`, mirroredAimX, mirroredAimY);
+            }
+        });
     }
 
-    // --- Detect Shoot Event and Emit (using mirrored coordinates) ---
-    let shootEvent = false;
-    if (isShooting && !lastShootState) {
-        shootEvent = true;
-    }
-    lastShootState = isShooting;
-
-    if (shootEvent && aimX !== -1) {
-        socket.emit('shoot', { x: aimX, y: aimY });
-        console.log("Sent shoot event at (mirrored):", aimX, aimY);
-        // console.log("Sent shoot event at (original):", aimX, aimY);
-    }
-
-    // --- Restore canvas state (removes mirror) --- (Still needed)
+    // --- Restore canvas state (removes mirror) ---
     canvasCtx.restore();
 
     // Score is drawn outside the mirrored context by updating the HTML element
@@ -129,7 +135,7 @@ const hands = new Hands({
     }
 });
 hands.setOptions({
-    maxNumHands: 1,
+    maxNumHands: 2,
     modelComplexity: 1,
     minDetectionConfidence: 0.7,
     minTrackingConfidence: 0.5
