@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Shooting Ducks</title>
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <h1>Shooting Ducks</h1>
+    <div class="main-content">
+        <div class="container">
+            <!-- Webcam video element (can be hidden) -->
+            <video class="input_video" style="display: none;"></video>
+            <!-- Canvas for drawing the game -->
+            <canvas class="output_canvas" width="1280px" height="720px"></canvas>
+            <div id="score">Score: 0</div>
+        </div>
+        <div class="instructions">
+            <h2>How to Play</h2>
+            <ul>
+                <li>Allow webcam access when prompted.</li>
+                <li>Your webcam feed shows the game background.</li>
+                <li>Point your **index finger** at the screen to aim (blue cursor).</li>
+                <li>Bring your **thumb and index finger** close together (pinch) to shoot (red cursor).</li>
+                <li>Hit the yellow ducks as they fly by.</li>
+                <li>Your score increases with each hit.</li>
+                <li>Press 'q' in the terminal running the server to quit (if using original script). For the web version, just close the browser tab.</li>
+            </ul>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html> 
