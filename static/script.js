@@ -74,22 +74,36 @@ function drawGame(results) {
     // --- Draw Ducks (in mirrored context) --- (Using MIRRORED coordinates again)
     if (duckImageLoaded) {
         currentDucks.forEach((duck, index) => {
-            // Calculate mirrored X coordinate for drawing (Re-enabled)
+            canvasCtx.save(); // Save context state before potential flip
+
             const mirroredDuckX = canvasElement.width - duck.x;
             const drawX = mirroredDuckX - duck.size / 2;
-            // const drawX = duck.x - duck.size / 2; // Use original X
-            const drawY = duck.y - duck.size / 2; // Y is not mirrored
+            const drawY = duck.y - duck.size / 2;
 
-            if (index === 0) { // Log EVERY frame for first duck
-                 console.log(`Drawing Mirrored Duck ${index}: duck.x=${duck.x} -> mirroredX=${mirroredDuckX} -> drawX=${drawX}, drawY=${drawY}`);
-                 // console.log(`Drawing Original Duck ${index}: duck.x=${duck.x} -> drawX=${drawX}, drawY=${drawY}`);
+            // Flip the duck image if moving left-to-right (direction == -1)
+            // Note: Since the whole canvas is already mirrored, a left-to-right
+            // moving duck (negative direction) appears to move rightwards.
+            // We need to flip it horizontally again around its center to face right.
+            if (duck.direction === -1) {
+                // Translate to the center of the duck, flip, translate back
+                canvasCtx.translate(mirroredDuckX, drawY + duck.size / 2);
+                canvasCtx.scale(-1, 1); // Flip horizontally
+                canvasCtx.translate(-mirroredDuckX, -(drawY + duck.size / 2));
             }
+
+            // if (index === 0) { // Log EVERY frame for first duck - REMOVED for clarity
+            //      console.log(`Drawing Mirrored Duck ${index}: duck.x=${duck.x} -> mirroredX=${mirroredDuckX} -> drawX=${drawX}, drawY=${drawY}, dir=${duck.direction}`);
+            // }
+
             if (typeof drawX === 'number' && typeof drawY === 'number' && typeof duck.size === 'number' && duck.size > 0) {
-                 canvasCtx.drawImage(duckImage, drawX, drawY, duck.size, duck.size);
+                // Draw the image at the original (mirrored) position,
+                // the context flip handles the orientation
+                canvasCtx.drawImage(duckImage, drawX, drawY, duck.size, duck.size);
             } else if (index === 0) {
-                 console.warn(`Skipping drawing mirrored duck ${index} due to invalid coordinates/size:`, duck);
-                 // console.warn(`Skipping drawing original duck ${index} due to invalid coordinates/size:`, duck);
+                console.warn(`Skipping drawing mirrored duck ${index} due to invalid coordinates/size:`, duck);
             }
+
+            canvasCtx.restore(); // Restore context state (removes individual duck flip)
         });
     } else {
         // Fallback circles (also needs mirrored X) (Re-enabled)

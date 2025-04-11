@@ -10,7 +10,7 @@ SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
 DUCK_SPEED_MIN = 1
 DUCK_SPEED_MAX = 4
-DUCK_SIZE = 50
+DUCK_SIZE = 80
 DUCK_COLOR = (0, 255, 255) # Yellow (will be converted to hex later)
 SPAWN_INTERVAL_MIN = 1.0
 SPAWN_INTERVAL_MAX = 3.0
@@ -50,7 +50,13 @@ class Duck:
 
     def to_dict(self):
         # Convert to a dictionary for sending via SocketIO
-        return {'id': self.id, 'x': self.x, 'y': self.y, 'size': self.size}
+        return {
+            'id': self.id,
+            'x': self.x,
+            'y': self.y,
+            'size': self.size,
+            'direction': self.direction
+        }
 
 # --- Game Logic Functions (Server-Side) ---
 def spawn_duck():
