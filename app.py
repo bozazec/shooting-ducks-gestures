@@ -8,8 +8,11 @@ import threading # Use standard threading
 # Constants
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
-DUCK_SPEED_MIN = 1
-DUCK_SPEED_MAX = 4
+DUCK_SPEED_START = 3  # Initial speed
+STALE_SPEED_DUCKS = 5 # Increase speed every 10 ducks
+DIFICULTY_PERCENTAGE = 30 # Increase speed by 10%
+# DUCK_SPEED_MIN = 1 # Removed
+# DUCK_SPEED_MAX = 4 # Removed
 DUCK_SIZE = 80
 DUCK_COLOR = (0, 255, 255) # Yellow (will be converted to hex later)
 SPAWN_INTERVAL_MIN = 1.0
@@ -28,14 +31,16 @@ ducks = []
 score = 0
 last_spawn_time = time.time()
 spawn_interval = random.uniform(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_MAX)
+spawned_ducks_count = 0 # Track total ducks spawned
+current_duck_speed = DUCK_SPEED_START # Current speed for new ducks
 
 # --- Duck Class (Server-Side) ---
 class Duck:
-    def __init__(self):
+    def __init__(self, speed): # Accept speed as argument
         self.id = random.randint(1000, 9999) # Simple ID for tracking
         self.x = 0
         self.y = random.randint(DUCK_SIZE, SCREEN_HEIGHT - DUCK_SIZE)
-        self.speed = random.randint(DUCK_SPEED_MIN, DUCK_SPEED_MAX)
+        self.speed = speed # Use the provided speed
         self.direction = random.choice([-1, 1]) # -1 for left to right, 1 for right to left
         if self.direction == 1:
             self.x = SCREEN_WIDTH
@@ -60,10 +65,18 @@ class Duck:
 
 # --- Game Logic Functions (Server-Side) ---
 def spawn_duck():
-    global last_spawn_time, spawn_interval
+    global last_spawn_time, spawn_interval, spawned_ducks_count, current_duck_speed
     current_time = time.time()
     if current_time - last_spawn_time > spawn_interval:
-        ducks.append(Duck())
+        # Increase speed if needed BEFORE spawning the new duck
+        if spawned_ducks_count > 0 and spawned_ducks_count % STALE_SPEED_DUCKS == 0:
+            increase_factor = 1 + (DIFICULTY_PERCENTAGE / 100.0)
+            current_duck_speed *= increase_factor
+            print(f"Difficulty increased! New duck speed: {current_duck_speed:.2f}")
+
+        # Spawn the duck with the current speed
+        ducks.append(Duck(current_duck_speed))
+        spawned_ducks_count += 1 # Increment after spawning
         last_spawn_time = current_time
         spawn_interval = random.uniform(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_MAX)
 
