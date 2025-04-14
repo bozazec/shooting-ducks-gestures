@@ -1,9 +1,13 @@
+import gevent # Add gevent
+from gevent import monkey # Add monkey patching
+monkey.patch_all() # Add monkey patching call
 from flask import Flask, render_template
 from flask_socketio import SocketIO, emit
 import time
 import random
 import math
-import threading # Use standard threading
+# import threading # Use standard threading - Remove this line
+import gevent.event # Use gevent event
 
 # Constants
 SCREEN_WIDTH = 1280
@@ -21,7 +25,7 @@ GAME_UPDATE_RATE = 1/30 # 30 FPS
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!' # Change this in production
-socketio = SocketIO(app, async_mode='threading')
+socketio = SocketIO(app, async_mode='gevent') # Change async_mode
 
 # --- Global Set to Track Connected Clients ---
 connected_clients = set()
@@ -125,8 +129,8 @@ def check_collision(aim_x, aim_y):
         return True # Indicate a hit
     return False
 
-# --- Background Task for Game Updates (using standard threading) ---
-stop_event = threading.Event() # To signal the thread to stop
+# --- Background Task for Game Updates (using gevent) ---
+stop_event = gevent.event.Event() # Use gevent.event.Event
 
 def game_loop():
     """Periodically updates game state and broadcasts to clients."""
@@ -160,7 +164,8 @@ def game_loop():
 
             loop_count += 1
         # Use time.sleep with standard threading
-        time.sleep(GAME_UPDATE_RATE)
+        # time.sleep(GAME_UPDATE_RATE) # Replace with gevent.sleep
+        gevent.sleep(GAME_UPDATE_RATE) # Use gevent.sleep
     print("Game loop thread stopped.")
 
 # --- Flask Routes ---
@@ -223,19 +228,7 @@ def handle_reset():
     emit('game_update', reset_state, broadcast=True)
     print(f"Game reset. Emitted reset state to all clients.")
 
-
-if __name__ == '__main__':
-    print("Starting game loop thread...")
-    # Start the game loop in a separate thread
-    game_thread = threading.Thread(target=game_loop)
-    game_thread.start()
-
-    print("Starting Flask-SocketIO development server on port 5001...")
-    # Run using the development server (handles threading)
-    socketio.run(app, debug=True, host='0.0.0.0', port=5001, use_reloader=False)
-
-    # Signal the game loop thread to stop when the server exits
-    print("Server stopping, signaling game loop thread...")
-    stop_event.set()
-    game_thread.join() # Wait for the thread to finish
-    print("Exited cleanly.") 
+# Start the background task when the application starts
+print("Starting game loop background task...")
+socketio.start_background_task(target=game_loop)
+print("Game loop background task started.") 

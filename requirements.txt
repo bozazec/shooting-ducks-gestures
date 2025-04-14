@@ -1,5 +1,5 @@
-opencv-python
-mediapipe
 Flask
 Flask-SocketIO
-# eventlet # Required for Flask-SocketIO 
+gevent
+gevent-websocket
+Gunicorn 
