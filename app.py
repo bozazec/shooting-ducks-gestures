@@ -8,6 +8,7 @@ import time
 import random
 import math
 import gevent.event # Use gevent event
+import os
 
 # Constants
 SCREEN_WIDTH = 1280
@@ -306,12 +307,16 @@ def handle_reset():
 # --- Main Execution (for local development) ---
 if __name__ == '__main__':
     print("Starting Flask-SocketIO development server (using gevent)...")
+    # Read port from environment variable, default to 5001 for local dev
+    port = int(os.environ.get('PORT', 5001))
+    print(f" ---> Running on http://0.0.0.0:{port}")
+
     # No global game loop to start here; loops are per-session.
     # Run using the development server with gevent worker
     # Use host='0.0.0.0' to make it accessible on the network
     # use_reloader=False is important when using background tasks managed this way
     # Render will use Gunicorn via Procfile for deployment
-    socketio.run(app, debug=True, host='0.0.0.0', port=5001, use_reloader=False)
+    socketio.run(app, debug=True, host='0.0.0.0', port=port, use_reloader=False)
 
     # Cleanup happens naturally as the server process exits
     print("Server stopping...")
