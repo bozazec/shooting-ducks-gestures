@@ -4,6 +4,7 @@ const canvasCtx = canvasElement.getContext('2d');
 const scoreElement = document.getElementById('score');
 const soundButton = document.getElementById('toggle-sound-button');
 const gunshotSound = document.getElementById('gunshot-sound');
+const reloadButton = document.getElementById('reload-button'); // Get the reload button
 
 const socket = io(); // Connect to the Flask-SocketIO server
 
@@ -58,6 +59,22 @@ document.addEventListener('DOMContentLoaded', () => {
 soundButton.addEventListener('click', () => {
     updateSoundState(!isSoundEnabled); // Toggle the state
 });
+
+// Function to reset the game
+function resetGame() {
+    console.log("Resetting game...");
+    currentScore = 0;
+    currentDucks = [];
+    scoreElement.textContent = `Score: ${currentScore}`;
+    lastShootStates = {}; // Reset shooting states too
+    // Emit event to server to reset its state
+    socket.emit('reset_game');
+    // Optional: Clear any remaining visual effects like bullet holes/explosions
+    document.querySelectorAll('.bullet-hole, .explosion').forEach(el => el.remove());
+}
+
+// --- Reload Button Listener ---
+reloadButton.addEventListener('click', resetGame);
 
 function drawGame(results) {
     canvasCtx.save();

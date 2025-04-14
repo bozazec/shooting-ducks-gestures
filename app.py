@@ -175,6 +175,27 @@ def handle_shoot(data):
             print(f"Hit detected at ({aim_x}, {aim_y}). Score: {score}")
             # No need to emit score update immediately, game_loop handles it
 
+@socketio.on('reset_game')
+def handle_reset():
+    """Resets the game state upon client request."""
+    global score, ducks, last_spawn_time, spawn_interval, spawned_ducks_count, current_duck_speed
+    print("Resetting game state...")
+    score = 0
+    ducks = []
+    spawned_ducks_count = 0
+    current_duck_speed = DUCK_SPEED_START
+    last_spawn_time = time.time() # Reset spawn timer
+    spawn_interval = random.uniform(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_MAX) # Randomize next spawn
+
+    # Prepare the reset game state
+    reset_state = {
+        'ducks': [],
+        'score': 0
+    }
+    # Broadcast the reset state to all connected clients
+    emit('game_update', reset_state, broadcast=True)
+    print(f"Game reset. Emitted reset state to all clients.")
+
 
 if __name__ == '__main__':
     print("Starting game loop thread...")
