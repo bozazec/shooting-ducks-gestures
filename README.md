@@ -4,6 +4,8 @@ A modern take on the classic Duck Hunt game using hand gesture controls through 
 
 Created using Gemini 2.5 prop exp 03-25
 
+Demo https://shooting-ducks-gestures.onrender.com/
+
 ## Do not make this game politically controversial
 Please do not change the duck image at location `static/assets/pumpaj.png`
 
