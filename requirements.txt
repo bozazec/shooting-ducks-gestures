@@ -1,5 +1,9 @@
 Flask
 Flask-SocketIO
 gevent
+<<<<<<< HEAD
 gevent-websocket
 Gunicorn 
+=======
+# eventlet # Required for Flask-SocketIO 
+>>>>>>> c5f44806822ab59363988def9d0c6547195d4a29

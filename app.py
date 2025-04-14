@@ -1,12 +1,12 @@
-import gevent # Add gevent
-from gevent import monkey # Add monkey patching
-monkey.patch_all() # Add monkey patching call
-from flask import Flask, render_template
+import gevent
+from gevent import monkey
+monkey.patch_all()
+
+from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit
 import time
 import random
 import math
-# import threading # Use standard threading - Remove this line
 import gevent.event # Use gevent event
 
 # Constants
@@ -25,7 +25,8 @@ GAME_UPDATE_RATE = 1/30 # 30 FPS
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!' # Change this in production
-socketio = SocketIO(app, async_mode='gevent') # Change async_mode
+# Ensure async_mode is gevent for multi-session background tasks
+socketio = SocketIO(app, async_mode='gevent')
 
 # --- Global Set to Track Connected Clients ---
 connected_clients = set()
@@ -69,166 +70,250 @@ class Duck:
             'direction': self.direction
         }
 
-# --- Game Logic Functions (Server-Side) ---
-def spawn_duck():
-    global last_spawn_time, spawn_interval, spawned_ducks_count, current_duck_speed
-    current_time = time.time()
-    if game_active and current_time - last_spawn_time > spawn_interval: # Only spawn if game active
-        # Increase speed if needed BEFORE spawning the new duck
-        if spawned_ducks_count > 0 and spawned_ducks_count % STALE_SPEED_DUCKS == 0:
-            increase_factor = 1 + (DIFICULTY_PERCENTAGE / 100.0)
-            current_duck_speed *= increase_factor
-            print(f"Difficulty increased! New duck speed: {current_duck_speed:.2f}")
+# --- Game Session Class ---
+# Encapsulates the state and logic for a single player's game
+class GameSession:
+    def __init__(self, sid, socketio_instance):
+        self.sid = sid
+        self.socketio = socketio_instance
+        self.ducks = []
+        self.score = 0
+        self.lives = 3
+        self.game_active = True
+        self.last_spawn_time = time.time()
+        self.spawn_interval = random.uniform(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_MAX)
+        self.spawned_ducks_count = 0
+        self.current_duck_speed = DUCK_SPEED_START
+        self._stop_event = gevent.event.Event() # Event specific to this session's loop
+        self._game_loop_task = None
 
-        # Spawn the duck with the current speed
-        ducks.append(Duck(current_duck_speed))
-        spawned_ducks_count += 1 # Increment after spawning
-        last_spawn_time = current_time
-        spawn_interval = random.uniform(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_MAX)
+    def start_game_loop(self):
+        """Starts the game loop for this session in a background task."""
+        if self._game_loop_task is None:
+            self._stop_event.clear() # Ensure event is clear before starting
+            self._game_loop_task = self.socketio.start_background_task(self._run_game_loop)
+            print(f"Started game loop for session {self.sid}")
 
-def move_ducks():
-    for duck in ducks:
-        duck.move()
+    def stop_game_loop(self):
+        """Signals the game loop for this session to stop."""
+        if self._game_loop_task is not None:
+            self._stop_event.set()
+            # Optional: wait for the task to finish if needed, but might block disconnect
+            # self._game_loop_task.join()
+            print(f"Stopped game loop for session {self.sid}")
+            self._game_loop_task = None # Clear the task handle
 
-def remove_offscreen_ducks():
-    global ducks, lives, game_active
-    ducks_kept = []
-    missed_count = 0
-    for duck in ducks:
-        if duck.is_offscreen():
-            missed_count += 1
-        else:
-            ducks_kept.append(duck)
+    def _run_game_loop(self):
+        """The actual game loop logic for this session."""
+        loop_count = 0
+        print(f"Game loop running for {self.sid}")
+        while not self._stop_event.is_set():
+            # No app_context needed when using start_background_task with gevent
+            if self.game_active:
+                self._spawn_duck()
+                self._move_ducks()
+                self._remove_offscreen_ducks()
 
-    if missed_count > 0:
-        lives -= missed_count
-        print(f"Missed {missed_count} duck(s). Lives remaining: {lives}")
-        if lives <= 0:
-            lives = 0 # Don't go below 0
-            game_active = False
-            print("Game Over!")
-            # Stop spawning new ducks immediately (handled in spawn_duck check)
-            # Ducks list will clear naturally or on reset
-
-    ducks = ducks_kept
-
-def check_collision(aim_x, aim_y):
-    global ducks, score
-    hit_duck_index = -1
-    for i, duck in enumerate(ducks):
-        # Increase hitbox radius by 30%
-        effective_radius = (duck.size / 2) * 1.3
-        dist_sq = (aim_x - duck.x)**2 + (aim_y - duck.y)**2
-        if dist_sq < effective_radius**2:
-            hit_duck_index = i
-            break
-
-    if hit_duck_index != -1:
-        del ducks[hit_duck_index]
-        score += 1
-        return True # Indicate a hit
-    return False
-
-# --- Background Task for Game Updates (using gevent) ---
-stop_event = gevent.event.Event() # Use gevent.event.Event
-
-def game_loop():
-    """Periodically updates game state and broadcasts to clients."""
-    loop_count = 0
-    while not stop_event.is_set(): # Check the stop event
-        with app.app_context(): # Need app context for emit outside of request
-            if game_active: # Only update game logic if active
-                spawn_duck()
-                move_ducks()
-                remove_offscreen_ducks()
-
-            # Prepare game state data for clients
+            # Prepare game state data specifically for this client
             game_state = {
-                'ducks': [duck.to_dict() for duck in ducks],
-                'score': score,
-                'lives': lives,
-                'game_active': game_active
+                'ducks': [duck.to_dict() for duck in self.ducks],
+                'score': self.score,
+                'lives': self.lives,
+                'game_active': self.game_active
             }
-            if loop_count % 30 == 0: # Log every ~second
-                # Make a copy of the set to avoid issues if it changes during iteration
-                clients_to_update = list(connected_clients)
-                print(f"Game Loop Thread {loop_count}: Emitting {len(game_state['ducks'])} ducks, Score: {game_state['score']} to {len(clients_to_update)} clients.")
 
-            # Emit specifically to each connected client
-            for sid in clients_to_update:
-                print(f"Attempting to emit game_update to SID: {sid}") # Add log before emit
-                try:
-                    socketio.emit('game_update', game_state, to=sid)
-                except Exception as e:
-                    print(f"ERROR emitting game_update to SID {sid}: {e}") # Log potential errors
+            if loop_count % 60 == 0: # Log less frequently per session
+                 print(f"Session {self.sid} Loop {loop_count}: Emitting {len(game_state['ducks'])} ducks, Score: {game_state['score']}, Lives: {self.lives}, Active: {self.game_active}")
+
+            try:
+                # Emit only to the specific client associated with this session
+                self.socketio.emit('game_update', game_state, to=self.sid)
+            except Exception as e:
+                # Handle potential errors if the client disconnected abruptly
+                print(f"ERROR emitting game_update to SID {self.sid}: {e}")
+                # Consider stopping the loop if emit fails consistently
+                # self.stop_game_loop()
+                # break # Exit loop
 
             loop_count += 1
-        # Use time.sleep with standard threading
-        # time.sleep(GAME_UPDATE_RATE) # Replace with gevent.sleep
-        gevent.sleep(GAME_UPDATE_RATE) # Use gevent.sleep
-    print("Game loop thread stopped.")
+            gevent.sleep(GAME_UPDATE_RATE) # Use gevent sleep
+
+        print(f"Game loop for session {self.sid} has exited.")
+
+    # --- Game Logic Methods (now part of GameSession) ---
+    def _spawn_duck(self):
+        current_time = time.time()
+        if self.game_active and current_time - self.last_spawn_time > self.spawn_interval:
+            if self.spawned_ducks_count > 0 and self.spawned_ducks_count % STALE_SPEED_DUCKS == 0:
+                increase_factor = 1 + (DIFICULTY_PERCENTAGE / 100.0)
+                self.current_duck_speed *= increase_factor
+                # print(f"Session {self.sid}: Difficulty increased! New duck speed: {self.current_duck_speed:.2f}") # Less verbose logging
+
+            self.ducks.append(Duck(self.current_duck_speed))
+            self.spawned_ducks_count += 1
+            self.last_spawn_time = current_time
+            self.spawn_interval = random.uniform(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_MAX)
+
+    def _move_ducks(self):
+        for duck in self.ducks:
+            duck.move()
+
+    def _remove_offscreen_ducks(self):
+        ducks_kept = []
+        missed_count = 0
+        for duck in self.ducks:
+            if duck.is_offscreen():
+                missed_count += 1
+            else:
+                ducks_kept.append(duck)
+
+        if missed_count > 0:
+            self.lives -= missed_count
+            # print(f"Session {self.sid}: Missed {missed_count} duck(s). Lives remaining: {self.lives}") # Less verbose logging
+            if self.lives <= 0:
+                self.lives = 0
+                self.game_active = False
+                print(f"Session {self.sid}: Game Over!")
+                # Emit game over state immediately? Or let the loop handle it? Loop is probably fine.
+
+        self.ducks = ducks_kept
+
+    def check_collision(self, aim_x, aim_y):
+        if not self.game_active: # Don't register hits if game is over
+             return False
+
+        hit_duck_index = -1
+        hit_duck_coords = None # Store coordinates of the hit duck
+        for i, duck in enumerate(self.ducks):
+            effective_radius = (duck.size / 2) * 1.3
+            # Use duck's current position for collision check
+            duck_center_x = duck.x + duck.size / 2
+            duck_center_y = duck.y + duck.size / 2
+            dist_sq = (aim_x - duck_center_x)**2 + (aim_y - duck_center_y)**2
+            if dist_sq < effective_radius**2:
+                hit_duck_index = i
+                # Store the exact click coordinates for the explosion effect
+                hit_duck_coords = {'x': aim_x, 'y': aim_y}
+                break
+
+        if hit_duck_index != -1:
+            del self.ducks[hit_duck_index]
+            self.score += 1
+            print(f"Session {self.sid}: Hit detected at ({aim_x}, {aim_y}). Score: {self.score}")
+            # Emit confirmation ONLY to the shooter, including hit location
+            try:
+                self.socketio.emit('hit_confirmed', hit_duck_coords, to=self.sid)
+            except Exception as e:
+                print(f"ERROR emitting hit_confirmed to SID {self.sid}: {e}")
+
+            # Game loop will emit the updated score/duck list later
+            return True
+        return False
+
+    def reset_game(self):
+        """Resets the game state for this session."""
+        print(f"Resetting game state for session {self.sid}...")
+        self.ducks = []
+        self.score = 0
+        self.lives = 3
+        self.game_active = True
+        self.spawned_ducks_count = 0
+        self.current_duck_speed = DUCK_SPEED_START
+        self.last_spawn_time = time.time()
+        self.spawn_interval = random.uniform(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_MAX)
+
+        # Prepare the reset game state specifically for this client
+        reset_state = {
+            'ducks': [],
+            'score': 0,
+            'lives': self.lives,
+            'game_active': self.game_active
+        }
+        # Emit the reset state directly to this client
+        try:
+            self.socketio.emit('game_update', reset_state, to=self.sid)
+            print(f"Session {self.sid}: Game reset. Emitted reset state.")
+        except Exception as e:
+            print(f"ERROR emitting reset_game update to SID {self.sid}: {e}")
+
+
+# --- Session Management ---
+game_sessions = {} # Dictionary to store active GameSession instances {sid: GameSession}
 
 # --- Flask Routes ---
 @app.route('/')
 def index():
+    # Renders the main game page
     return render_template('index.html')
 
 # --- SocketIO Events ---
 @socketio.on('connect')
 def handle_connect():
-    # Correct way to get sid within event handler
-    from flask import request
     sid = request.sid
-    connected_clients.add(sid) # Add client to the set
-    print(f'Client connected: {sid}. Total clients: {len(connected_clients)}')
-    # Emit a test event directly to the newly connected client
-    emit('test_event', {'data': 'Server says hello upon connection!'}, to=sid) # Target specific client
-    print(f"Sent 'test_event' to {sid}")
+    if sid in game_sessions:
+        print(f"Client {sid} reconnected? Handling potential existing session.")
+        # Decide how to handle reconnection: maybe stop old loop, create new?
+        # For simplicity, let's stop the old one if it exists and create a new one.
+        old_session = game_sessions.pop(sid, None)
+        if old_session:
+            old_session.stop_game_loop()
+
+    print(f'Client connected: {sid}. Creating new game session.')
+    # Create a new session for the connected client
+    session = GameSession(sid, socketio)
+    game_sessions[sid] = session
+    session.start_game_loop() # Start the dedicated game loop for this session
+
+    # Optional: Send an initial state or confirmation
+    emit('connection_ack', {'message': 'Game session started!'}, to=sid)
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    from flask import request
     sid = request.sid
-    connected_clients.discard(sid) # Remove client from the set
-    print(f'Client disconnected: {sid}. Total clients: {len(connected_clients)}')
+    print(f'Client disconnected: {sid}. Cleaning up session.')
+    session = game_sessions.pop(sid, None) # Remove session and get it
+    if session:
+        session.stop_game_loop() # Signal the session's game loop to stop
+    else:
+        print(f"Warning: No active session found for disconnected SID {sid}")
+    print(f"Active sessions: {len(game_sessions)}")
 
 @socketio.on('shoot')
 def handle_shoot(data):
-    """Handles shoot event from a client."""
-    aim_x = data.get('x')
-    aim_y = data.get('y')
-    if aim_x is not None and aim_y is not None:
-        hit = check_collision(aim_x, aim_y)
-        if hit:
-            print(f"Hit detected at ({aim_x}, {aim_y}). Score: {score}")
-            # No need to emit score update immediately, game_loop handles it
+    """Handles shoot event from a client, routes to their session."""
+    sid = request.sid
+    session = game_sessions.get(sid)
+    if session:
+        aim_x = data.get('x')
+        aim_y = data.get('y')
+        if aim_x is not None and aim_y is not None:
+            # Call the session's collision check (which now emits hit_confirmed)
+            session.check_collision(aim_x, aim_y)
+            # Score/state update is handled by the session's game loop emit
+    else:
+        print(f"Warning: Received 'shoot' from unknown/inactive session {sid}")
 
 @socketio.on('reset_game')
 def handle_reset():
-    """Resets the game state upon client request."""
-    global score, ducks, lives, game_active, last_spawn_time, spawn_interval, spawned_ducks_count, current_duck_speed
-    print("Resetting game state...")
-    score = 0
-    ducks = []
-    lives = 3 # Reset lives
-    game_active = True # Reactivate game
-    spawned_ducks_count = 0
-    current_duck_speed = DUCK_SPEED_START
-    last_spawn_time = time.time() # Reset spawn timer
-    spawn_interval = random.uniform(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_MAX) # Randomize next spawn
+    """Resets the game state for the requesting client's session."""
+    sid = request.sid
+    session = game_sessions.get(sid)
+    if session:
+        session.reset_game()
+    else:
+        print(f"Warning: Received 'reset_game' from unknown/inactive session {sid}")
 
-    # Prepare the reset game state
-    reset_state = {
-        'ducks': [],
-        'score': 0,
-        'lives': lives,
-        'game_active': game_active
-    }
-    # Broadcast the reset state to all connected clients
-    emit('game_update', reset_state, broadcast=True)
-    print(f"Game reset. Emitted reset state to all clients.")
+# --- Main Execution (for local development) ---
+if __name__ == '__main__':
+    print("Starting Flask-SocketIO development server (using gevent)...")
+    # No global game loop to start here; loops are per-session.
+    # Run using the development server with gevent worker
+    # Use host='0.0.0.0' to make it accessible on the network
+    # use_reloader=False is important when using background tasks managed this way
+    # Render will use Gunicorn via Procfile for deployment
+    socketio.run(app, debug=True, host='0.0.0.0', port=5001, use_reloader=False)
 
-# Start the background task when the application starts
-print("Starting game loop background task...")
-socketio.start_background_task(target=game_loop)
-print("Game loop background task started.") 
+    # Cleanup happens naturally as the server process exits
+    print("Server stopping...")
+    # Note: Active gevent greenlets might not be explicitly joined here in a simple
+    # dev server shutdown scenario, but stopping sessions on disconnect helps.
