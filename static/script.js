@@ -5,11 +5,15 @@ const scoreElement = document.getElementById('score');
 const soundButton = document.getElementById('toggle-sound-button');
 const gunshotSound = document.getElementById('gunshot-sound');
 const reloadButton = document.getElementById('reload-button'); // Get the reload button
+const livesElement = document.getElementById('lives'); // Get lives display element
+const gameOverElement = document.getElementById('game-over'); // Get game over message element
 
 const socket = io(); // Connect to the Flask-SocketIO server
 
 let currentDucks = [];
 let currentScore = 0;
+let currentLives = 3; // Initialize client-side lives
+let isGameActive = true; // Initialize client-side game state
 // Remove unused single-hand tracking variables
 // let aimX = -1, aimY = -1;
 // let isShooting = false;
@@ -65,7 +69,11 @@ function resetGame() {
     console.log("Resetting game...");
     currentScore = 0;
     currentDucks = [];
+    currentLives = 3; // Reset lives on client
+    isGameActive = true; // Reset game state on client
     scoreElement.textContent = `Score: ${currentScore}`;
+    updateLivesDisplay(); // Update heart display
+    gameOverElement.style.display = 'none'; // Hide game over message
     lastShootStates = {}; // Reset shooting states too
     // Emit event to server to reset its state
     socket.emit('reset_game');
@@ -75,6 +83,15 @@ function resetGame() {
 
 // --- Reload Button Listener ---
 reloadButton.addEventListener('click', resetGame);
+
+// --- Function to update lives display ---
+function updateLivesDisplay() {
+    const redHeart = '❤️';
+    const grayHeart = '🖤'; // Or use a different grayed-out symbol
+    livesElement.textContent = redHeart.repeat(currentLives) + grayHeart.repeat(3 - currentLives);
+    // Adjust color based on lives remaining for better visibility
+    livesElement.style.color = currentLives > 0 ? 'red' : 'gray';
+}
 
 function drawGame(results) {
     canvasCtx.save();
@@ -132,6 +149,12 @@ function drawGame(results) {
             // canvasCtx.arc(duck.x, duck.y, duck.size / 2, 0, 2 * Math.PI); // Use original X
             canvasCtx.fill();
         });
+    }
+
+    // Don't process gestures or draw cursor if game is over
+    if (!isGameActive) {
+        canvasCtx.restore(); // Restore canvas state (removes mirror)
+        return; // Stop further drawing/processing
     }
 
     // --- Process Gestures and Draw Cursor (in mirrored context) ---
@@ -276,7 +299,17 @@ socket.on('game_update', (data) => {
     console.log('Received game update:', data);
     currentDucks = data.ducks;
     currentScore = data.score;
+    currentLives = data.lives; // Update client lives
+    isGameActive = data.game_active; // Update client game state
     scoreElement.textContent = `Score: ${currentScore}`;
+    updateLivesDisplay(); // Update the hearts display
+
+    // Show/Hide Game Over message
+    if (!isGameActive) {
+        gameOverElement.style.display = 'block';
+    } else {
+        gameOverElement.style.display = 'none';
+    }
     // Redrawing happens in the hands.onResults callback
 });
 

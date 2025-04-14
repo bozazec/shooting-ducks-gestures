@@ -29,6 +29,8 @@ connected_clients = set()
 # --- Game State (Server-Side) ---
 ducks = []
 score = 0
+lives = 3
+game_active = True
 last_spawn_time = time.time()
 spawn_interval = random.uniform(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_MAX)
 spawned_ducks_count = 0 # Track total ducks spawned
@@ -67,7 +69,7 @@ class Duck:
 def spawn_duck():
     global last_spawn_time, spawn_interval, spawned_ducks_count, current_duck_speed
     current_time = time.time()
-    if current_time - last_spawn_time > spawn_interval:
+    if game_active and current_time - last_spawn_time > spawn_interval: # Only spawn if game active
         # Increase speed if needed BEFORE spawning the new duck
         if spawned_ducks_count > 0 and spawned_ducks_count % STALE_SPEED_DUCKS == 0:
             increase_factor = 1 + (DIFICULTY_PERCENTAGE / 100.0)
@@ -85,8 +87,26 @@ def move_ducks():
         duck.move()
 
 def remove_offscreen_ducks():
-    global ducks
-    ducks = [duck for duck in ducks if not duck.is_offscreen()]
+    global ducks, lives, game_active
+    ducks_kept = []
+    missed_count = 0
+    for duck in ducks:
+        if duck.is_offscreen():
+            missed_count += 1
+        else:
+            ducks_kept.append(duck)
+
+    if missed_count > 0:
+        lives -= missed_count
+        print(f"Missed {missed_count} duck(s). Lives remaining: {lives}")
+        if lives <= 0:
+            lives = 0 # Don't go below 0
+            game_active = False
+            print("Game Over!")
+            # Stop spawning new ducks immediately (handled in spawn_duck check)
+            # Ducks list will clear naturally or on reset
+
+    ducks = ducks_kept
 
 def check_collision(aim_x, aim_y):
     global ducks, score
@@ -113,14 +133,17 @@ def game_loop():
     loop_count = 0
     while not stop_event.is_set(): # Check the stop event
         with app.app_context(): # Need app context for emit outside of request
-            spawn_duck()
-            move_ducks()
-            remove_offscreen_ducks()
+            if game_active: # Only update game logic if active
+                spawn_duck()
+                move_ducks()
+                remove_offscreen_ducks()
 
             # Prepare game state data for clients
             game_state = {
                 'ducks': [duck.to_dict() for duck in ducks],
-                'score': score
+                'score': score,
+                'lives': lives,
+                'game_active': game_active
             }
             if loop_count % 30 == 0: # Log every ~second
                 # Make a copy of the set to avoid issues if it changes during iteration
@@ -178,10 +201,12 @@ def handle_shoot(data):
 @socketio.on('reset_game')
 def handle_reset():
     """Resets the game state upon client request."""
-    global score, ducks, last_spawn_time, spawn_interval, spawned_ducks_count, current_duck_speed
+    global score, ducks, lives, game_active, last_spawn_time, spawn_interval, spawned_ducks_count, current_duck_speed
     print("Resetting game state...")
     score = 0
     ducks = []
+    lives = 3 # Reset lives
+    game_active = True # Reactivate game
     spawned_ducks_count = 0
     current_duck_speed = DUCK_SPEED_START
     last_spawn_time = time.time() # Reset spawn timer
@@ -190,7 +215,9 @@ def handle_reset():
     # Prepare the reset game state
     reset_state = {
         'ducks': [],
-        'score': 0
+        'score': 0,
+        'lives': lives,
+        'game_active': game_active
     }
     # Broadcast the reset state to all connected clients
     emit('game_update', reset_state, broadcast=True)
